@@ -6069,7 +6069,7 @@
     </div>
     
     <!-- Audio Element - 使用简单文件名 music.mp3 -->
-    <audio id="bg-music" loop preload="metadata">
+    <audio id="bg-music" loop preload="auto" crossorigin="anonymous">
         <source src="music.mp3" type="audio/mpeg">
     </audio>
     
@@ -6407,35 +6407,97 @@
                         welcomeScreen.style.display = 'none';
                     }, 800);
                     
-                    // Play music
-                    console.log('🎵 Attempting to play music...');
+                    // Play music - always try to load first
+                    console.log('🎵 Checking audio state...');
                     console.log('Audio src:', bgMusic.currentSrc);
                     console.log('Audio readyState:', bgMusic.readyState);
                     
-                    bgMusic.play().then(() => {
-                        isPlaying = true;
-                        if (playBtn) {
-                            playBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>';
-                        }
-                        if (musicPlayer) {
-                            musicPlayer.classList.add('playing');
-                            musicPlayer.classList.add('expanded');
-                        }
-                        console.log('✅ Music started playing from welcome screen');
-                    }).catch(err => {
-                        console.error('❌ Music play failed:', err);
-                        console.error('Error name:', err.name);
-                        console.error('Error message:', err.message);
+                    // Force load audio if not loaded
+                    if (bgMusic.readyState === 0) {
+                        console.log('🔄 Audio not loaded, forcing load...');
+                        bgMusic.load();
+                    }
+                    
+                    // Try to play immediately (might work if cached)
+                    // or wait for canplay event
+                    const tryPlay = () => {
+                        console.log('▶️ Attempting to play...');
+                        playAudio();
+                    };
+                    
+                    if (bgMusic.readyState >= 2) {
+                        // Audio is ready
+                        tryPlay();
+                    } else {
+                        // Wait for audio to be ready
+                        console.log('⏳ Waiting for audio to load...');
+                        const playWhenReady = () => {
+                            console.log('✅ Audio can play now');
+                            tryPlay();
+                        };
+                        bgMusic.addEventListener('canplay', playWhenReady, { once: true });
                         
-                        // Show notification if play fails
-                        if (playerNotification) {
-                            playerNotification.style.display = 'block';
-                            playerNotification.innerHTML = '🎵 点击播放音乐';
-                        }
-                        
-                        alert('音乐播放失败: ' + err.message + '\n请检查浏览器控制台获取更多信息。');
-                    });
+                        // Timeout fallback - try anyway after 3 seconds
+                        setTimeout(() => {
+                            bgMusic.removeEventListener('canplay', playWhenReady);
+                            if (!isPlaying) {
+                                console.log('⏰ Timeout - trying to play anyway');
+                                tryPlay();
+                            }
+                        }, 3000);
+                    }
                 });
+            }
+            
+            // Helper function to play audio
+            function playAudio() {
+                if (!bgMusic) return;
+                
+                // Prevent multiple play calls
+                if (isPlaying) {
+                    console.log('⚠️ Already playing, skipping');
+                    return;
+                }
+                
+                console.log('▶️ Starting playback...');
+                
+                bgMusic.play().then(() => {
+                    isPlaying = true;
+                    if (playBtn) {
+                        playBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>';
+                    }
+                    if (musicPlayer) {
+                        musicPlayer.classList.add('playing');
+                        musicPlayer.classList.add('expanded');
+                    }
+                    console.log('✅ Music started playing successfully');
+                }).catch(err => {
+                    console.error('❌ Music play failed:', err);
+                    console.error('Error name:', err.name);
+                    console.error('Error message:', err.message);
+                    isPlaying = false; // Reset state on failure
+                    
+                    // Show notification if play fails
+                    if (playerNotification) {
+                        playerNotification.style.display = 'block';
+                        playerNotification.innerHTML = '🎵 点击播放器开始';
+                    }
+                });
+            }
+            
+            // Helper function to pause audio
+            function pauseAudio() {
+                if (!bgMusic || !isPlaying) return;
+                
+                console.log('⏸️ Pausing playback...');
+                bgMusic.pause();
+                isPlaying = false;
+                if (playBtn) {
+                    playBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+                }
+                if (musicPlayer) {
+                    musicPlayer.classList.remove('playing');
+                }
             }
             
             // Music Player Controls
@@ -6460,19 +6522,11 @@
                     e.stopPropagation();
                     
                     if (isPlaying) {
-                        bgMusic.pause();
-                        playBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
-                        musicPlayer.classList.remove('playing');
+                        pauseAudio();
                     } else {
-                        bgMusic.play().then(() => {
-                            playBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>';
-                            musicPlayer.classList.add('playing');
-                            if (playerNotification) playerNotification.style.display = 'none';
-                        }).catch(err => {
-                            console.log('Audio play failed:', err);
-                        });
+                        playAudio();
+                        if (playerNotification) playerNotification.style.display = 'none';
                     }
-                    isPlaying = !isPlaying;
                 });
                 
                 // Update progress
@@ -6486,9 +6540,15 @@
                 // Reset when ended
                 bgMusic.addEventListener('ended', () => {
                     isPlaying = false;
-                    playBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
-                    musicPlayer.classList.remove('playing');
-                    playerProgress.style.width = '0%';
+                    if (playBtn) {
+                        playBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+                    }
+                    if (musicPlayer) {
+                        musicPlayer.classList.remove('playing');
+                    }
+                    if (playerProgress) {
+                        playerProgress.style.width = '0%';
+                    }
                 });
             }
             
